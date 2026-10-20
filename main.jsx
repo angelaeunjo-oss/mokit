@@ -87,7 +87,7 @@ function App() {
     e.preventDefault();
     setLoginError('');
     if (!supabase) { setLoginError('Supabase 환경 변수를 먼저 설정해 주세요.'); return; }
-    const { error } = await supabase.auth.signInWithPassword({ email: 'admin@mokit.local', password });
+    const { error } = await supabase.auth.signInWithPassword({ email: 'mokit_wav@naver.com', password });
     if (error) setLoginError('로그인 정보를 확인해 주세요.');
     else { setShowLogin(false); setShowSettings(true); setPassword(''); }
   }
