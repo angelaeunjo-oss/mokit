@@ -96,7 +96,7 @@ const [uploadingImage, setUploadingImage] = useState('');
     else { setShowLogin(false); setShowSettings(true); setPassword(''); }
   }
 
-  async function saveProfile(e) {
+  
    async function uploadProfileImage(file, kind) {
   if (!file || !supabase || !admin) return;
 
