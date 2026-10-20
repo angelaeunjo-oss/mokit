@@ -37,6 +37,10 @@ function App() {
   const [notice, setNotice] = useState('');
   const [replyDrafts, setReplyDrafts] = useState({});
   const bottomRef = useRef(null);
+  
+  const avatarFileRef = useRef(null);
+const coverFileRef = useRef(null);
+const [uploadingImage, setUploadingImage] = useState('');
 
   useEffect(() => {
     if (!supabase) return;
@@ -93,6 +97,57 @@ function App() {
   }
 
   async function saveProfile(e) {
+   async function uploadProfileImage(file, kind) {
+  if (!file || !supabase || !admin) return;
+
+  if (!file.type.startsWith('image/')) {
+    showToast('이미지 파일만 선택할 수 있어요.');
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('사진은 5MB 이하로 선택해 주세요.');
+    return;
+  }
+
+  setUploadingImage(kind);
+
+  const extension =
+    (file.name.split('.').pop() || 'jpg')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '') || 'jpg';
+
+  const path =
+    `${kind}/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+
+  const { error } = await supabase.storage
+    .from('mokit-images')
+    .upload(path, file, {
+      upsert: false,
+      contentType: file.type
+    });
+
+  if (error) {
+    showToast('사진 업로드에 실패했어요.');
+    setUploadingImage('');
+    return;
+  }
+
+  const { data } = supabase.storage
+    .from('mokit-images')
+    .getPublicUrl(path);
+
+  const field = kind === 'avatar' ? 'avatar_url' : 'cover_url';
+
+  setSettings(prev => ({
+    ...prev,
+    [field]: data.publicUrl
+  }));
+
+  setUploadingImage('');
+
+  showToast('사진을 선택했어요! 변경 사항 저장을 눌러 주세요.');
+}
     e.preventDefault();
     if (!supabase || !admin) return;
     const patch = {
