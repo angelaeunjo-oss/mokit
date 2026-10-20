@@ -8,7 +8,8 @@ import {
   X,
   Settings2,
   LogOut,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Palette
 } from 'lucide-react';
 import './style.css';
 
@@ -20,6 +21,8 @@ const supabase =
     ? createClient(url, key)
     : null;
 
+const ADMIN_EMAIL = 'mokit_wav@naver.com';
+
 const fallbackProfile = {
   nickname: '모킷',
   avatar_url: '',
@@ -27,48 +30,30 @@ const fallbackProfile = {
   bio: '익명으로 마음을 놓고 가는 곳'
 };
 
-function FloatingStars() {
-  const stars = [
-    '✦', '✧', '☆', '✷', '✹', '✸',
-    '✺', '✵', '✶', '⋆', '✦', '✧'
-  ];
-
-  return (
-    <div className="stars-layer" aria-hidden="true">
-      {stars.map((s, i) => (
-        <span key={i} className={`float-star star-${i + 1}`}>
-          {s}
-        </span>
-      ))}
-    </div>
-  );
-}
+const themes = [
+  { id: 'pink', name: '핑크', color: '#FF5C98' },
+  { id: 'blue', name: '블루', color: '#478EE8' },
+  { id: 'black', name: '블랙', color: '#454550' },
+  { id: 'lavender', name: '라벤더', color: '#9670E8' },
+  { id: 'mint', name: '민트', color: '#39B99A' }
+];
 
 function App() {
   const [profile, setProfile] = useState(fallbackProfile);
-
-  const [messages, setMessages] = useState(() =>
-    supabase
-      ? []
-      : [
-          {
-            id: 'demo-1',
-            body: '모킷모치 테스트 메시지예요!',
-            reply: '반가워요, 모킷이에요 ♡',
-            created_at: new Date().toISOString()
-          }
-        ]
-  );
-
+  const [messages, setMessages] = useState([]);
   const [screen, setScreen] = useState('profile');
+
   const [draft, setDraft] = useState('');
   const [admin, setAdmin] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+
   const [settings, setSettings] = useState(fallbackProfile);
+  const [siteTheme, setSiteTheme] = useState('pink');
   const [sending, setSending] = useState(false);
+  const [savingTheme, setSavingTheme] = useState(false);
   const [notice, setNotice] = useState('');
   const [replyDrafts, setReplyDrafts] = useState({});
   const [uploadingImage, setUploadingImage] = useState('');
@@ -76,6 +61,7 @@ function App() {
   const bottomRef = useRef(null);
   const avatarFileRef = useRef(null);
   const coverFileRef = useRef(null);
+  const noticeTimer = useRef(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -83,7 +69,11 @@ function App() {
     let alive = true;
 
     async function load() {
-      const [{ data: p }, { data: m }] = await Promise.all([
+      const [
+        { data: p, error: profileError },
+        { data: m, error: messageError },
+        { data: s, error: themeError }
+      ] = await Promise.all([
         supabase
           .from('mokit_profile')
           .select('*')
@@ -94,10 +84,20 @@ function App() {
           .from('mokit_messages')
           .select('*')
           .order('created_at', { ascending: true })
-          .limit(150)
+          .limit(150),
+
+        supabase
+          .from('mokit_settings')
+          .select('theme')
+          .eq('id', 1)
+          .maybeSingle()
       ]);
 
       if (!alive) return;
+
+      if (profileError) console.error(profileError);
+      if (messageError) console.error(messageError);
+      if (themeError) console.error(themeError);
 
       if (p) {
         setProfile(p);
@@ -105,6 +105,10 @@ function App() {
       }
 
       if (m) setMessages(m);
+
+      if (s?.theme && themes.some(t => t.id === s.theme)) {
+        setSiteTheme(s.theme);
+      }
     }
 
     load();
@@ -119,10 +123,10 @@ function App() {
           table: 'mokit_profile'
         },
         payload => {
-          if (payload.new) {
-            setProfile(payload.new);
-            setSettings(payload.new);
-          }
+          if (!alive || !payload.new) return;
+
+          setProfile(payload.new);
+          setSettings(prev => ({ ...prev, ...payload.new }));
         }
       )
       .on(
@@ -133,9 +137,11 @@ function App() {
           table: 'mokit_messages'
         },
         payload => {
+          if (!alive) return;
+
           if (payload.eventType === 'INSERT') {
             setMessages(prev =>
-              prev.some(x => x.id === payload.new.id)
+              prev.some(x => String(x.id) === String(payload.new.id))
                 ? prev
                 : [...prev, payload.new].slice(-150)
             );
@@ -160,21 +166,44 @@ function App() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'mokit_settings'
+        },
+        payload => {
+          if (!alive) return;
+
+          const updatedTheme = payload.new?.theme;
+
+          if (themes.some(t => t.id === updatedTheme)) {
+            setSiteTheme(updatedTheme);
+          }
+        }
+      )
       .subscribe();
 
     supabase.auth.getSession().then(({ data }) => {
-      setAdmin(!!data.session);
+      if (!alive) return;
+
+      setAdmin(data.session?.user?.email === ADMIN_EMAIL);
     });
 
     const { data: authListener } =
       supabase.auth.onAuthStateChange((_event, session) => {
-        setAdmin(!!session);
+        setAdmin(session?.user?.email === ADMIN_EMAIL);
       });
 
     return () => {
       alive = false;
       supabase.removeChannel(channel);
       authListener.subscription.unsubscribe();
+
+      if (noticeTimer.current) {
+        clearTimeout(noticeTimer.current);
+      }
     };
   }, []);
 
@@ -189,7 +218,14 @@ function App() {
 
   const showToast = msg => {
     setNotice(msg);
-    setTimeout(() => setNotice(''), 2600);
+
+    if (noticeTimer.current) {
+      clearTimeout(noticeTimer.current);
+    }
+
+    noticeTimer.current = setTimeout(() => {
+      setNotice('');
+    }, 2600);
   };
 
   async function sendMessage(e) {
@@ -205,29 +241,33 @@ function App() {
         {
           id: `demo-${Date.now()}`,
           body,
+          sender: admin ? 'mokit' : 'anonymous',
           reply: '',
           created_at: new Date().toISOString()
         }
       ]);
 
       setDraft('');
-
-      showToast(
-        '미리보기 메시지예요. Supabase 연결 후 실제 저장돼요.'
-      );
-
+      showToast('미리보기 메시지예요. Supabase 연결 후 실제 저장돼요.');
       return;
     }
 
     setSending(true);
 
+    const payload = admin
+      ? { body, sender: 'mokit' }
+      : { body };
+
     const { error } = await supabase
       .from('mokit_messages')
-      .insert({ body });
+      .insert(payload);
 
     if (error) {
+      console.error('메시지 전송 오류:', error);
       showToast(
-        '메시지를 보내지 못했어요. 잠시 후 다시 시도해 주세요.'
+        admin
+          ? '메시지를 보내지 못했어요. 관리자 권한 설정을 확인해 주세요.'
+          : '메시지를 보내지 못했어요. 잠시 후 다시 시도해 주세요.'
       );
     } else {
       setDraft('');
@@ -241,27 +281,26 @@ function App() {
     setLoginError('');
 
     if (!supabase) {
-      setLoginError(
-        'Supabase 환경 변수를 먼저 설정해 주세요.'
-      );
+      setLoginError('Supabase 환경 변수를 먼저 설정해 주세요.');
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: 'mokit_wav@naver.com',
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: ADMIN_EMAIL,
       password
     });
 
-    if (error) {
+    if (error || data.user?.email !== ADMIN_EMAIL) {
       setLoginError('로그인 정보를 확인해 주세요.');
-    } else {
-      setShowLogin(false);
-      setShowSettings(true);
-      setPassword('');
+      if (!error) await supabase.auth.signOut();
+      return;
     }
+
+    setShowLogin(false);
+    setShowSettings(true);
+    setPassword('');
   }
 
-  // 사진첩에서 선택한 이미지를 Supabase Storage에 업로드
   async function uploadProfileImage(file, kind) {
     if (!file || !supabase || !admin) return;
 
@@ -296,10 +335,8 @@ function App() {
         });
 
       if (error) {
-        console.error('이미지 업로드 오류:', error);
-        showToast(
-          '사진 업로드에 실패했어요. Storage 설정을 확인해 주세요.'
-        );
+        console.error(error);
+        showToast('사진 업로드에 실패했어요. Storage 설정을 확인해 주세요.');
         return;
       }
 
@@ -307,19 +344,16 @@ function App() {
         .from('mokit-images')
         .getPublicUrl(path);
 
-      const field =
-        kind === 'avatar' ? 'avatar_url' : 'cover_url';
+      const field = kind === 'avatar' ? 'avatar_url' : 'cover_url';
 
       setSettings(prev => ({
         ...prev,
         [field]: data.publicUrl
       }));
 
-      showToast(
-        '사진을 선택했어요! 변경 사항 저장을 눌러 주세요.'
-      );
+      showToast('사진을 선택했어요! 변경 사항 저장을 눌러 주세요.');
     } catch (error) {
-      console.error('이미지 업로드 오류:', error);
+      console.error(error);
       showToast('사진 업로드 중 오류가 발생했어요.');
     } finally {
       setUploadingImage('');
@@ -345,24 +379,51 @@ function App() {
       .eq('id', 1);
 
     if (error) {
-      console.error('프로필 저장 오류:', error);
-
-      showToast(
-        '저장하지 못했어요. 관리자 계정과 SQL 설정을 확인해 주세요.'
-      );
-    } else {
-      setProfile(patch);
-      setSettings(patch);
-      setShowSettings(false);
-      showToast('프로필이 업데이트됐어요 ✦');
+      console.error(error);
+      showToast('프로필을 저장하지 못했어요. SQL 권한 설정을 확인해 주세요.');
+      return;
     }
+
+    setProfile(patch);
+    setSettings(patch);
+    setShowSettings(false);
+    showToast('프로필이 업데이트됐어요 ✦');
+  }
+
+  async function changeTheme(theme) {
+    if (!supabase || !admin || savingTheme) return;
+
+    if (!themes.some(t => t.id === theme)) return;
+
+    const previousTheme = siteTheme;
+
+    setSiteTheme(theme);
+    setSavingTheme(true);
+
+    const { error } = await supabase
+      .from('mokit_settings')
+      .update({
+        theme,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', 1);
+
+    if (error) {
+      console.error('테마 저장 오류:', error);
+      setSiteTheme(previousTheme);
+      showToast('테마를 저장하지 못했어요. 관리자 권한을 확인해 주세요.');
+    } else {
+      showToast(`${themes.find(t => t.id === theme)?.name} 테마를 적용했어요!`);
+    }
+
+    setSavingTheme(false);
   }
 
   async function deleteMessage(messageId) {
     if (!supabase || !admin) return;
 
     const confirmed = window.confirm(
-      '이 익명 메시지를 삭제할까요? 삭제하면 복구할 수 없어요.'
+      '이 메시지를 삭제할까요? 삭제하면 복구할 수 없어요.'
     );
 
     if (!confirmed) return;
@@ -373,14 +434,10 @@ function App() {
       .eq('id', messageId);
 
     if (error) {
-      showToast(
-        '메시지를 삭제하지 못했어요. SQL 권한 설정을 확인해 주세요.'
-      );
+      showToast('메시지를 삭제하지 못했어요. SQL 권한 설정을 확인해 주세요.');
     } else {
       setMessages(prev =>
-        prev.filter(
-          m => String(m.id) !== String(messageId)
-        )
+        prev.filter(m => String(m.id) !== String(messageId))
       );
 
       showToast('메시지를 삭제했어요.');
@@ -398,9 +455,7 @@ function App() {
       .eq('id', messageId);
 
     if (error) {
-      showToast(
-        '답변을 저장하지 못했어요. SQL 설정을 확인해 주세요.'
-      );
+      showToast('답변을 저장하지 못했어요. SQL 권한 설정을 확인해 주세요.');
     } else {
       setMessages(prev =>
         prev.map(m =>
@@ -420,7 +475,10 @@ function App() {
   }
 
   async function logout() {
-    await supabase?.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+
     setShowSettings(false);
     showToast('관리자 로그아웃했어요.');
   }
@@ -429,14 +487,13 @@ function App() {
 
   return (
     <main
-      className={`app-shell ${
+      className={`app-shell theme-${siteTheme} ${
         screen === 'chat' ? 'is-chat' : 'is-profile'
       }`}
+      data-theme={siteTheme}
       style={
         profile.cover_url
-          ? {
-              '--page-cover': `url("${profile.cover_url}")`
-            }
+          ? { '--page-cover': `url("${profile.cover_url}")` }
           : {}
       }
     >
@@ -452,17 +509,9 @@ function App() {
         <button
           className="admin-star"
           title="관리자 로그인"
-          onClick={() =>
-            admin
-              ? setShowSettings(true)
-              : setShowLogin(true)
-          }
+          onClick={() => admin ? setShowSettings(true) : setShowLogin(true)}
         >
-          <Star
-            size={15}
-            fill="currentColor"
-            strokeWidth={1.5}
-          />
+          <Star size={15} fill="currentColor" strokeWidth={1.5} />
         </button>
       </header>
 
@@ -491,10 +540,7 @@ function App() {
               <p>{profile.bio || ''}</p>
             </div>
 
-            <button
-              className="enter-button"
-              onClick={() => setScreen('chat')}
-            >
+            <button className="enter-button" onClick={() => setScreen('chat')}>
               입장하기 <ArrowUpRight size={18} />
             </button>
 
@@ -524,9 +570,7 @@ function App() {
             </button>
 
             <h1>모킷모치</h1>
-            <span className="chat-count">
-              {messages.length}
-            </span>
+            <span className="chat-count">{messages.length}</span>
           </div>
 
           <div className="message-area">
@@ -536,91 +580,99 @@ function App() {
               </div>
             )}
 
-            {messages.map((m, i) => (
-              <div
-                key={m.id ?? i}
-                className="message-pair"
-              >
-                <div className="message-row anonymous-row">
-                  <div className="bubble anonymous-bubble">
-                    {m.body}
-                  </div>
+            {messages.map((m, i) => {
+              const isMokit = m.sender === 'mokit';
+
+              return (
+                <div key={m.id ?? i} className="message-pair">
+                  {isMokit ? (
+                    <div className="message-row owner-row">
+                      <div className="bubble owner-bubble">
+                        {m.body}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="message-row anonymous-row">
+                        <div className="bubble anonymous-bubble">
+                          {m.body}
+                        </div>
+                      </div>
+
+                      {m.reply && (
+                        <div className="message-row owner-row">
+                          <div className="bubble owner-bubble">
+                            {m.reply}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {admin && (
+                    isMokit ? (
+                      <div className="admin-message-actions standalone-actions">
+                        <button
+                          type="button"
+                          className="delete-message-button"
+                          onClick={() => deleteMessage(m.id)}
+                        >
+                          메시지 삭제
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="reply-editor">
+                        <textarea
+                          value={replyDrafts[m.id] ?? (m.reply || '')}
+                          onChange={e =>
+                            setReplyDrafts(prev => ({
+                              ...prev,
+                              [m.id]: e.target.value
+                            }))
+                          }
+                          maxLength={500}
+                          rows={2}
+                          placeholder="모킷의 답변"
+                        />
+
+                        <div className="admin-message-actions">
+                          <button
+                            type="button"
+                            onClick={() => saveReply(m.id)}
+                            disabled={!(replyDrafts[m.id] ?? m.reply ?? '').trim()}
+                          >
+                            답변 저장
+                          </button>
+
+                          <button
+                            type="button"
+                            className="delete-message-button"
+                            onClick={() => deleteMessage(m.id)}
+                          >
+                            메시지 삭제
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  )}
                 </div>
-
-                {m.reply && (
-                  <div className="message-row owner-row">
-                    <div className="bubble owner-bubble">
-                      {m.reply}
-                    </div>
-                  </div>
-                )}
-
-                {admin && (
-                  <div className="reply-editor">
-                    <textarea
-                      value={
-                        replyDrafts[m.id] ??
-                        (m.reply || '')
-                      }
-                      onChange={e =>
-                        setReplyDrafts(prev => ({
-                          ...prev,
-                          [m.id]: e.target.value
-                        }))
-                      }
-                      maxLength={500}
-                      rows={2}
-                      placeholder="모킷의 답변"
-                    />
-
-                    <div className="admin-message-actions">
-                      <button
-                        type="button"
-                        onClick={() => saveReply(m.id)}
-                        disabled={
-                          !(
-                            replyDrafts[m.id] ??
-                            m.reply ??
-                            ''
-                          ).trim()
-                        }
-                      >
-                        답변 저장
-                      </button>
-
-                      <button
-                        type="button"
-                        className="delete-message-button"
-                        onClick={() => deleteMessage(m.id)}
-                      >
-                        메시지 삭제
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
 
             <div ref={bottomRef} />
           </div>
 
-          <form
-            className="composer"
-            onSubmit={sendMessage}
-          >
+          <form className={`composer ${admin ? 'admin-composer' : ''}`} onSubmit={sendMessage}>
             <div className="composer-field">
               <textarea
                 value={draft}
                 onChange={e => setDraft(e.target.value)}
                 maxLength={500}
                 rows={2}
-                placeholder="메시지를 남겨 주세요"
-                aria-label="익명 메시지"
+                placeholder={admin ? '모킷의 메시지를 남겨 주세요' : '메시지를 남겨 주세요'}
+                aria-label={admin ? '모킷 메시지' : '익명 메시지'}
                 onKeyDown={e => {
-                  if (
-                    e.key === 'Enter' &&
-                    !e.shiftKey
-                  ) {
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     sendMessage(e);
                   }
@@ -637,7 +689,7 @@ function App() {
             </div>
 
             <div className="composer-foot">
-              <span>익명으로 남겨요</span>
+              <span>{admin ? '모킷으로 메시지 전송' : '익명으로 남겨요'}</span>
               <span>{draft.length}/500</span>
             </div>
           </form>
@@ -648,20 +700,11 @@ function App() {
         <div
           className="modal-backdrop"
           onMouseDown={e => {
-            if (e.target === e.currentTarget) {
-              setShowLogin(false);
-            }
+            if (e.target === e.currentTarget) setShowLogin(false);
           }}
         >
-          <form
-            className="modal login-modal"
-            onSubmit={login}
-          >
-            <button
-              type="button"
-              className="modal-close"
-              onClick={() => setShowLogin(false)}
-            >
+          <form className="modal login-modal" onSubmit={login}>
+            <button type="button" className="modal-close" onClick={() => setShowLogin(false)}>
               <X size={18} />
             </button>
 
@@ -669,10 +712,7 @@ function App() {
               <Star size={21} fill="currentColor" />
             </div>
 
-            <div className="modal-kicker">
-              ONLY FOR MOKIT
-            </div>
-
+            <div className="modal-kicker">ONLY FOR MOKIT</div>
             <h2>관리자 로그인</h2>
             <p>비밀번호를 입력해 주세요.</p>
 
@@ -681,24 +721,15 @@ function App() {
               <input
                 type="password"
                 value={password}
-                onChange={e =>
-                  setPassword(e.target.value)
-                }
+                onChange={e => setPassword(e.target.value)}
                 placeholder="비밀번호를 입력해 주세요"
                 required
               />
             </label>
 
-            {loginError && (
-              <div className="form-error">
-                {loginError}
-              </div>
-            )}
+            {loginError && <div className="form-error">{loginError}</div>}
 
-            <button
-              className="modal-submit"
-              type="submit"
-            >
+            <button className="modal-submit" type="submit">
               로그인 <ArrowUpRight size={16} />
             </button>
           </form>
@@ -709,37 +740,56 @@ function App() {
         <div
           className="modal-backdrop"
           onMouseDown={e => {
-            if (e.target === e.currentTarget) {
-              setShowSettings(false);
-            }
+            if (e.target === e.currentTarget) setShowSettings(false);
           }}
         >
-          <form
-            className="modal settings-modal"
-            onSubmit={saveProfile}
-          >
-            <button
-              type="button"
-              className="modal-close"
-              onClick={() => setShowSettings(false)}
-            >
+          <form className="modal settings-modal" onSubmit={saveProfile}>
+            <button type="button" className="modal-close" onClick={() => setShowSettings(false)}>
               <X size={18} />
             </button>
 
             <div className="modal-kicker">MOKIT</div>
             <h2>프로필 꾸미기</h2>
-            <p>사진과 소개를 변경해요.</p>
+            <p>사진과 소개, 사이트 테마를 변경해요.</p>
+
+            <div className="theme-picker">
+              <div className="theme-picker-title">
+                <Palette size={15} />
+                <span>전체 테마</span>
+              </div>
+
+              <p className="theme-description">
+                선택한 테마는 모든 방문자에게 적용돼요.
+              </p>
+
+              <div className="theme-options">
+                {themes.map(theme => (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    className={`theme-option ${siteTheme === theme.id ? 'selected' : ''}`}
+                    onClick={() => changeTheme(theme.id)}
+                    disabled={savingTheme}
+                    aria-pressed={siteTheme === theme.id}
+                  >
+                    <span
+                      className="theme-swatch"
+                      style={{ background: theme.color }}
+                    />
+                    <span>{theme.name}</span>
+                    {siteTheme === theme.id && <span className="theme-check">✓</span>}
+                  </button>
+                ))}
+              </div>
+
+              {savingTheme && <p className="theme-saving">테마 저장 중…</p>}
+            </div>
 
             <label>
               닉네임
               <input
                 value={settings.nickname || ''}
-                onChange={e =>
-                  setSettings({
-                    ...settings,
-                    nickname: e.target.value
-                  })
-                }
+                onChange={e => setSettings({ ...settings, nickname: e.target.value })}
                 maxLength={40}
                 placeholder="모킷"
               />
@@ -754,11 +804,7 @@ function App() {
                 accept="image/*"
                 onChange={e => {
                   const file = e.target.files?.[0];
-
-                  if (file) {
-                    uploadProfileImage(file, 'avatar');
-                  }
-
+                  if (file) uploadProfileImage(file, 'avatar');
                   e.target.value = '';
                 }}
               />
@@ -766,23 +812,15 @@ function App() {
               <button
                 className="image-pick-button"
                 type="button"
-                onClick={() =>
-                  avatarFileRef.current?.click()
-                }
+                onClick={() => avatarFileRef.current?.click()}
                 disabled={uploadingImage !== ''}
               >
                 <ImageIcon size={16} />
-                {uploadingImage === 'avatar'
-                  ? '사진 올리는 중…'
-                  : '사진첩에서 선택'}
+                {uploadingImage === 'avatar' ? '사진 올리는 중…' : '사진첩에서 선택'}
               </button>
 
               {settings.avatar_url && (
-                <img
-                  className="image-preview"
-                  src={settings.avatar_url}
-                  alt="프로필 사진 미리보기"
-                />
+                <img className="image-preview" src={settings.avatar_url} alt="프로필 사진 미리보기" />
               )}
             </label>
 
@@ -795,11 +833,7 @@ function App() {
                 accept="image/*"
                 onChange={e => {
                   const file = e.target.files?.[0];
-
-                  if (file) {
-                    uploadProfileImage(file, 'cover');
-                  }
-
+                  if (file) uploadProfileImage(file, 'cover');
                   e.target.value = '';
                 }}
               />
@@ -807,23 +841,15 @@ function App() {
               <button
                 className="image-pick-button"
                 type="button"
-                onClick={() =>
-                  coverFileRef.current?.click()
-                }
+                onClick={() => coverFileRef.current?.click()}
                 disabled={uploadingImage !== ''}
               >
                 <ImageIcon size={16} />
-                {uploadingImage === 'cover'
-                  ? '사진 올리는 중…'
-                  : '사진첩에서 선택'}
+                {uploadingImage === 'cover' ? '사진 올리는 중…' : '사진첩에서 선택'}
               </button>
 
               {settings.cover_url && (
-                <img
-                  className="image-preview cover-preview"
-                  src={settings.cover_url}
-                  alt="배경 사진 미리보기"
-                />
+                <img className="image-preview cover-preview" src={settings.cover_url} alt="배경 사진 미리보기" />
               )}
             </label>
 
@@ -831,35 +857,18 @@ function App() {
               한 줄 소개
               <input
                 value={settings.bio || ''}
-                onChange={e =>
-                  setSettings({
-                    ...settings,
-                    bio: e.target.value
-                  })
-                }
+                onChange={e => setSettings({ ...settings, bio: e.target.value })}
                 maxLength={120}
                 placeholder="익명으로 마음을 놓고 가는 곳"
               />
             </label>
 
-            <button
-              className="modal-submit"
-              type="submit"
-              disabled={uploadingImage !== ''}
-            >
-              {uploadingImage
-                ? '사진 업로드가 끝날 때까지 기다려 주세요'
-                : '변경 사항 저장'}
-              {!uploadingImage && (
-                <ArrowUpRight size={16} />
-              )}
+            <button className="modal-submit" type="submit" disabled={uploadingImage !== ''}>
+              {uploadingImage ? '사진 업로드가 끝날 때까지 기다려 주세요' : '프로필 변경 사항 저장'}
+              {!uploadingImage && <ArrowUpRight size={16} />}
             </button>
 
-            <button
-              className="logout-button"
-              type="button"
-              onClick={logout}
-            >
+            <button className="logout-button" type="button" onClick={logout}>
               <LogOut size={14} />
               로그아웃
             </button>
@@ -872,6 +881,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(
-  <App />
-);
+createRoot(document.getElementById('root')).render(<App />);
