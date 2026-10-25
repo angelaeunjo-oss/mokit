@@ -271,8 +271,16 @@ function App() {
           ? '메시지를 보내지 못했어요. 관리자 권한 설정을 확인해 주세요.'
           : '메시지를 보내지 못했어요. 잠시 후 다시 시도해 주세요.'
       );
-    } else {
+        } else {
       setDraft('');
+
+      if (inserted) {
+        setMessages(prev =>
+          prev.some(x => String(x.id) === String(inserted.id))
+            ? prev
+            : [...prev, inserted].slice(-150)
+        );
+      }
     }
 
     setSending(false);
