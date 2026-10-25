@@ -258,7 +258,7 @@ function App() {
       ? { body, sender: 'mokit' }
       : { body };
 
-        const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await supabase
       .from('mokit_messages')
       .insert(payload)
       .select()
@@ -271,7 +271,7 @@ function App() {
           ? '메시지를 보내지 못했어요. 관리자 권한 설정을 확인해 주세요.'
           : '메시지를 보내지 못했어요. 잠시 후 다시 시도해 주세요.'
       );
-        } else {
+    } else {
       setDraft('');
 
       if (inserted) {
@@ -371,49 +371,49 @@ function App() {
   }
 
   async function saveProfile(e) {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!supabase) {
-    showToast('서버에 연결할 수 없어요.');
-    return;
+    if (!supabase) {
+      showToast('서버에 연결할 수 없어요.');
+      return;
+    }
+
+    const patch = {
+      nickname: settings.nickname.trim() || '모킷',
+      avatar_url: (settings.avatar_url || '').trim(),
+      cover_url: (settings.cover_url || '').trim(),
+      bio: settings.bio.trim(),
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log('저장할 프로필:', patch);
+
+    const { data, error } = await supabase
+      .from('mokit_profile')
+      .update(patch)
+      .eq('id', 1)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error('프로필 저장 오류:', error);
+      showToast(`저장 실패: ${error.message}`);
+      return;
+    }
+
+    if (!data) {
+      console.error('프로필 저장 대상이 없거나 수정된 행을 확인할 수 없습니다.');
+      showToast('프로필을 찾지 못했어요. Supabase 권한을 확인해 주세요.');
+      return;
+    }
+
+    console.log('DB에 저장된 프로필:', data);
+
+    setProfile(data);
+    setSettings(data);
+    setShowSettings(false);
+    showToast('프로필이 업데이트됐어요 ✦');
   }
-
-  const patch = {
-    nickname: settings.nickname.trim() || '모킷',
-    avatar_url: (settings.avatar_url || '').trim(),
-    cover_url: (settings.cover_url || '').trim(),
-    bio: settings.bio.trim(),
-    updated_at: new Date().toISOString(),
-  };
-
-  console.log('저장할 프로필:', patch);
-
-  const { data, error } = await supabase
-    .from('mokit_profile')
-    .update(patch)
-    .eq('id', 1)
-    .select()
-    .maybeSingle();
-
-  if (error) {
-    console.error('프로필 저장 오류:', error);
-    showToast(`저장 실패: ${error.message}`);
-    return;
-  }
-
-  if (!data) {
-    console.error('프로필 저장 대상이 없거나 수정된 행을 확인할 수 없습니다.');
-    showToast('프로필을 찾지 못했어요. Supabase 권한을 확인해 주세요.');
-    return;
-  }
-
-  console.log('DB에 저장된 프로필:', data);
-
-  setProfile(data);
-  setSettings(data);
-  setShowSettings(false);
-  showToast('프로필이 업데이트됐어요 ✦');
-}
 
   async function changeTheme(theme) {
     if (!supabase || !admin || savingTheme) return;
@@ -528,7 +528,7 @@ function App() {
           onClick={() => setScreen('profile')}
           aria-label="프로필로 이동"
         >
-          mokit<span>✳</span>
+          mokit
         </button>
 
         <button
