@@ -258,9 +258,11 @@ function App() {
       ? { body, sender: 'mokit' }
       : { body };
 
-    const { error } = await supabase
+        const { data: inserted, error } = await supabase
       .from('mokit_messages')
-      .insert(payload);
+      .insert(payload)
+      .select()
+      .single();
 
     if (error) {
       console.error('메시지 전송 오류:', error);
