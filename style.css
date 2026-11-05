@@ -1066,3 +1066,54 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+/* =========================
+   레몬민트
+========================= */
+
+.app-shell[data-theme="lemon"] {
+  --accent: #8EDCC3;
+  --accent-soft: #BDEBCF;
+  --accent-border: #A5E0C9;
+  --accent-pale: #F8FBEA;
+  --accent-light: #F6F2B8;
+  --accent-dark: #6DC4A6;
+  --accent-text: #3A937A;
+  --accent-muted: #8FB8A6;
+  --accent-line: #D2EFD9;
+  --accent-gradient: linear-gradient(
+    180deg,
+    #FAF4B5 0%,
+    #BDEBCF 50%,
+    #8EDCC3 100%
+  );
+  --avatar-gradient: radial-gradient(
+    ellipse at 35% 25%,
+    #fff 0%,
+    #FBF8D0 45%,
+    #BFEBD6 100%
+  );
+  --bubble-gradient: linear-gradient(
+    155deg,
+    #F4F0A8 0%,
+    #BDEBCF 65%,
+    #8EDCC3 100%
+  );
+  --page-bg: #FBFDF0;
+  --overlay: rgba(251, 253, 240, .78);
+}
+
+/* 밝은 배경 위라서 흰 글씨 대신 진한 민트 글씨 */
+
+.app-shell[data-theme="lemon"] .enter-button,
+.app-shell[data-theme="lemon"] .modal-submit,
+.app-shell[data-theme="lemon"] .composer-field button,
+.app-shell[data-theme="lemon"] .owner-bubble {
+  color: #2F6B58;
+}
+
+/* 테마 버튼 6개: 3칸 × 2줄 */
+
+.theme-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
