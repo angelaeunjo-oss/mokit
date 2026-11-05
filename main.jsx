@@ -35,10 +35,42 @@ const themes = [
   { id: 'blue', name: '블루', color: '#478EE8' },
   { id: 'black', name: '블랙', color: '#454550' },
   { id: 'lavender', name: '라벤더', color: '#9670E8' },
-  { id: 'mint', name: '민트', color: '#39B99A' }
+  { id: 'mint', name: '민트', color: '#39B99A' },
+  { id: 'lemon', name: '레몬민트', color: '#8EDCC3' }
 ];
 
+const THEME_CACHE_KEY = 'mokit-theme';
+const DEFAULT_LOADER_COLOR = '#B9B9C4';
+
+function readCachedTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_CACHE_KEY);
+    return themes.some(t => t.id === saved) ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function preloadImage(src) {
+  return new Promise(resolve => {
+    if (!src) {
+      resolve();
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = src;
+
+    setTimeout(resolve, 4000);
+  });
+}
+
 function App() {
+  const [cachedTheme] = useState(readCachedTheme);
+  const [loading, setLoading] = useState(Boolean(supabase));
+
   const [profile, setProfile] = useState(fallbackProfile);
   const [messages, setMessages] = useState([]);
   const [screen, setScreen] = useState('profile');
@@ -51,7 +83,7 @@ function App() {
   const [loginError, setLoginError] = useState('');
 
   const [settings, setSettings] = useState(fallbackProfile);
-  const [siteTheme, setSiteTheme] = useState('pink');
+  const [siteTheme, setSiteTheme] = useState(cachedTheme || 'pink');
   const [sending, setSending] = useState(false);
   const [savingTheme, setSavingTheme] = useState(false);
   const [notice, setNotice] = useState('');
@@ -68,46 +100,61 @@ function App() {
 
     let alive = true;
 
+    const bootTimer = setTimeout(() => {
+      if (alive) setLoading(false);
+    }, 8000);
+
     async function load() {
-      const [
-        { data: p, error: profileError },
-        { data: m, error: messageError },
-        { data: s, error: themeError }
-      ] = await Promise.all([
-        supabase
-          .from('mokit_profile')
-          .select('*')
-          .eq('id', 1)
-          .maybeSingle(),
+      try {
+        const [
+          { data: p, error: profileError },
+          { data: m, error: messageError },
+          { data: s, error: themeError }
+        ] = await Promise.all([
+          supabase
+            .from('mokit_profile')
+            .select('*')
+            .eq('id', 1)
+            .maybeSingle(),
 
-        supabase
-          .from('mokit_messages')
-          .select('*')
-          .order('created_at', { ascending: true })
-          .limit(150),
+          supabase
+            .from('mokit_messages')
+            .select('*')
+            .order('created_at', { ascending: true })
+            .limit(150),
 
-        supabase
-          .from('mokit_settings')
-          .select('theme')
-          .eq('id', 1)
-          .maybeSingle()
-      ]);
+          supabase
+            .from('mokit_settings')
+            .select('theme')
+            .eq('id', 1)
+            .maybeSingle()
+        ]);
 
-      if (!alive) return;
+        if (!alive) return;
 
-      if (profileError) console.error(profileError);
-      if (messageError) console.error(messageError);
-      if (themeError) console.error(themeError);
+        if (profileError) console.error(profileError);
+        if (messageError) console.error(messageError);
+        if (themeError) console.error(themeError);
 
-      if (p) {
-        setProfile(p);
-        setSettings(p);
-      }
+        if (p) {
+          setProfile(p);
+          setSettings(p);
+        }
 
-      if (m) setMessages(m);
+        if (m) setMessages(m);
 
-      if (s?.theme && themes.some(t => t.id === s.theme)) {
-        setSiteTheme(s.theme);
+        if (s?.theme && themes.some(t => t.id === s.theme)) {
+          setSiteTheme(s.theme);
+        }
+
+        await Promise.all([
+          preloadImage(p?.avatar_url),
+          preloadImage(p?.cover_url)
+        ]);
+      } catch (err) {
+        console.error('초기 불러오기 오류:', err);
+      } finally {
+        if (alive) setLoading(false);
       }
     }
 
@@ -198,6 +245,7 @@ function App() {
 
     return () => {
       alive = false;
+      clearTimeout(bootTimer);
       supabase.removeChannel(channel);
       authListener.subscription.unsubscribe();
 
@@ -206,6 +254,16 @@ function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    try {
+      localStorage.setItem(THEME_CACHE_KEY, siteTheme);
+    } catch {
+      // 저장이 막힌 브라우저에서는 그냥 넘어가요
+    }
+  }, [siteTheme, loading]);
 
   useEffect(() => {
     if (screen === 'chat') {
@@ -509,6 +567,38 @@ function App() {
   }
 
   const avatar = profile.avatar_url;
+
+  const loaderColor =
+    themes.find(t => t.id === cachedTheme)?.color || DEFAULT_LOADER_COLOR;
+
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-label="불러오는 중"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#ffffff'
+        }}
+      >
+        <style>{`@keyframes mokit-spin { to { transform: rotate(360deg); } }`}</style>
+        <div
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: '50%',
+            border: '3px solid #ECEAF0',
+            borderTopColor: loaderColor,
+            animation: 'mokit-spin 0.8s linear infinite'
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <main
